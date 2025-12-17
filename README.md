@@ -1,6 +1,7 @@
 # ⛓️ Iron Chain – Solana Trading Bot
 
 **Professioneller Regime-basierter Trading Bot für SOL/USDC**
+MADE BY PAUL WITH ♥️
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org/)
