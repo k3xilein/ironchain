@@ -335,7 +335,7 @@ export class IronChainBot {
       const entryValue = amountToSell * this.currentPosition.entryPrice;
       const exitValue = result.amount; // USDC received
       const pnl = exitValue - entryValue;
-      const risk = amountToSell * (this.currentPosition.entryPrice - this.currentPosition.stop Price);
+  const risk = amountToSell * (this.currentPosition.entryPrice - this.currentPosition.stopPrice);
       const rMultiple = pnl / risk;
       const holdTime = (Date.now() - this.currentPosition.entryTime) / 1000;
 
