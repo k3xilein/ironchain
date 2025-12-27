@@ -8,7 +8,7 @@ set -euo pipefail
 # - runs npm ci, build and restarts pm2 process (fallback to nohup)
 
 REPO_DIR="/Users/mac/ironchain"
-BRANCH="linux-server-bot"
+BRANCH="main"
 
 cd "$REPO_DIR"
 
