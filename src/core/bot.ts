@@ -249,6 +249,13 @@ export class IronChainBot {
         regime: 'BULL',
       });
 
+      // Attach DB id to in-memory position for future updates
+      try {
+        (this.currentPosition as any).id = positionId;
+      } catch (err) {
+        this.logger.debug('Bot', 'Failed to attach position id to currentPosition', { error: String(err) });
+      }
+
       this.database.insertTrade({
         timestamp: Date.now(),
         direction: 'buy',
@@ -356,19 +363,24 @@ export class IronChainBot {
 
       // Update database
       if (percentage >= 1.0) {
-        // Position fully closed
-        this.database.updatePosition(1, { // Get actual position ID
-          exitTime: Date.now(),
-          exitPrice: result.price,
-          pnlUSDC: pnl,
-          pnlPercent: (pnl / entryValue) * 100,
-          rMultiple,
-          holdDurationSeconds: holdTime,
-          exitReason: exitType,
-          outcome: pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven',
-        });
+        // Position fully closed — update DB using stored position id if available
+        const posId = (this.currentPosition as any)?.id;
+        if (posId && posId > 0) {
+          this.database.updatePosition(posId, {
+            exitTime: Date.now(),
+            exitPrice: result.price,
+            pnlUSDC: pnl,
+            pnlPercent: (pnl / entryValue) * 100,
+            rMultiple,
+            holdDurationSeconds: holdTime,
+            exitReason: exitType,
+            outcome: pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven',
+          });
 
-        this.auditLogger.logPositionClosed(pnl, rMultiple, holdTime, exitType);
+          this.auditLogger.logPositionClosed(pnl, rMultiple, holdTime, exitType);
+        } else {
+          this.logger.warn('Bot', 'Closing position but no DB position id found; skipping DB update', { exitType, rMultiple, pnl });
+        }
       }
 
       this.database.insertTrade({

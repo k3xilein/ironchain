@@ -3,6 +3,7 @@ import { ExitConfig } from '../config';
 import { getLatestATR, getLatestEMA } from './indicators';
 
 export interface Position {
+  id?: number;
   entryPrice: number;
   amount: number;
   stopPrice: number;
