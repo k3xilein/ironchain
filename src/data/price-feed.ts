@@ -29,25 +29,32 @@ export class PriceFeed {
       return this.cachedPrice;
     }
 
+    // Try Jupiter HTTP price first (generally returns a straightforward USD value).
+    // Use Pyth as a secondary source; also validate values to avoid unit/offset parsing issues.
     try {
-      // Try Pyth first
+      const jupiterPrice = await this.getJupiterPrice();
+      if (this.isPriceReasonable(jupiterPrice.price)) {
+        this.cachedPrice = jupiterPrice;
+        this.lastUpdateTime = now;
+        return jupiterPrice;
+      }
+    } catch (err) {
+      // swallow and try pyth
+      console.warn('Jupiter price fetch failed or returned unreasonable value, falling back to Pyth', err);
+    }
+
+    try {
       const pythPrice = await this.getPythPrice();
-      
-      if (pythPrice) {
+      if (pythPrice && this.isPriceReasonable(pythPrice.price)) {
         this.cachedPrice = pythPrice;
         this.lastUpdateTime = now;
         return pythPrice;
       }
-
-      // Fallback to Jupiter
-      const jupiterPrice = await this.getJupiterPrice();
-      this.cachedPrice = jupiterPrice;
-      this.lastUpdateTime = now;
-      return jupiterPrice;
-
-    } catch (error) {
-      throw new Error(`Failed to fetch price: ${error}`);
+    } catch (err) {
+      console.warn('Pyth price fetch failed or returned unreasonable value', err);
     }
+
+    throw new Error('Failed to fetch a reasonable price from Jupiter or Pyth');
   }
 
   private async getPythPrice(): Promise<PriceData | null> {
@@ -80,6 +87,12 @@ export class PriceFeed {
       // Convert to decimal
       const priceDecimal = Number(price) * Math.pow(10, expo);
       const confidenceDecimal = Number(confidence) * Math.pow(10, expo);
+
+      // Basic sanity check — if the parsed price is absurdly large/small, return null
+      if (!this.isPriceReasonable(priceDecimal)) {
+        console.warn(`Parsed Pyth price unreasonable: ${priceDecimal}`);
+        return null;
+      }
 
       return {
         price: priceDecimal,
@@ -148,5 +161,13 @@ export class PriceFeed {
     } catch (error) {
       return { healthy: false };
     }
+  }
+
+  private isPriceReasonable(price: number): boolean {
+    // SOL shouldn't cost fractions of a cent or trillions of USD. Use broad bounds.
+    if (!isFinite(price) || price <= 0) return false;
+    if (price < 0.001) return false; // <0.1 cent
+    if (price > 1_000_000) return false; // > $1M per SOL is unrealistic
+    return true;
   }
 }

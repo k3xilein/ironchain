@@ -20,25 +20,37 @@ export class PaperExecutor implements Executor {
   }
 
   async initialize(): Promise<void> {
-    // If user provided a starting SOL interactively but did NOT set
-    // the INITIAL_CAPITAL_USDC env var, compute the equivalent USDC
-    // from the current price so the paper wallet reflects the same
-    // total starting equity (sol * price).
-    // We check process.env directly because config.trading.initialCapitalUSDC
-    // will already contain the default (1000) when the env var is not set.
-    if (this.balance.sol > 0 && process.env.INITIAL_CAPITAL_USDC === undefined) {
-      try {
-        const priceData = await this.priceFeed.getPrice();
-        const currentPrice = priceData.price;
-        this.balance.usdc = this.balance.sol * currentPrice;
-      } catch (err) {
-        // if price lookup fails, fall back to configured initial capital
-        // (leave this.balance.usdc as-is)
-        // Optional: we could log a warning here if logger is available.
-      }
-    }
+    // If the user provided a starting SOL, prefer deriving the USDC amount
+    // from a live price lookup (Jupiter/Pyth). We will attempt a few retries
+    // to make the result robust on flaky networks. Only if all attempts
+    // fail will we fall back to the configured initial capital.
+    if (this.balance.sol > 0) {
+      const maxAttempts = 3;
+      let priceFound: number | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const priceData = await this.priceFeed.getPrice();
+          if (priceData && typeof priceData.price === 'number' && isFinite(priceData.price) && priceData.price > 0) {
+            priceFound = priceData.price;
+            break;
+          }
+        } catch (err) {
+          // swallow and retry
+        }
 
-    console.log('Paper executor initialized with:', this.balance);
+        // small backoff
+        await new Promise((res) => setTimeout(res, 500 * attempt));
+      }
+
+      if (priceFound !== null) {
+        this.balance.usdc = this.balance.sol * priceFound;
+        console.log(`Paper executor initialized with live price ${priceFound} ->`, this.balance);
+      } else {
+        console.warn('Paper executor: failed to fetch live price after retries — falling back to configured INITIAL_CAPITAL_USDC', this.balance);
+      }
+    } else {
+      console.log('Paper executor initialized with:', this.balance);
+    }
   }
 
   async buy(amountUSDC: number, maxSlippage: number): Promise<ExecutionResult> {
