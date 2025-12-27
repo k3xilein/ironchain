@@ -56,7 +56,7 @@ export interface DecisionRecord {
 }
 
 export class TradingDatabase {
-  private db: Database.Database;
+  private db!: Database.Database;
   private config: Config;
 
   constructor(config: Config) {
@@ -270,7 +270,7 @@ export class TradingDatabase {
       : `SELECT * FROM positions ORDER BY entry_time DESC`;
 
     const stmt = this.db.prepare(sql);
-    return limit ? stmt.all(limit) : stmt.all();
+    return (limit ? stmt.all(limit) : stmt.all()) as PositionRecord[];
   }
 
   getClosedPositions(): PositionRecord[] {
@@ -280,7 +280,7 @@ export class TradingDatabase {
       SELECT * FROM positions WHERE exit_time IS NOT NULL ORDER BY entry_time DESC
     `);
 
-    return stmt.all();
+    return stmt.all() as PositionRecord[];
   }
 
   getEquityCurve(limit?: number): EquityRecord[] {
@@ -291,7 +291,7 @@ export class TradingDatabase {
       : `SELECT * FROM equity_curve ORDER BY timestamp DESC`;
 
     const stmt = this.db.prepare(sql);
-    return limit ? stmt.all(limit) : stmt.all();
+    return (limit ? stmt.all(limit) : stmt.all()) as EquityRecord[];
   }
 
   vacuum(): void {
