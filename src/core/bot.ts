@@ -77,8 +77,8 @@ export class IronChainBot {
   }
 
   private async runCycle(): Promise<void> {
-    // Live log cycle start
-    this.logger.debug('Bot', 'Starting cycle', { pair: this.config.trading.pair, timestamp: Date.now() });
+  // Live log cycle start
+  this.logger.info('Bot', 'Starting cycle', { pair: this.config.trading.pair, timestamp: Date.now() });
     // Check kill switch
     if (this.killSwitch.isTriggered()) {
       this.logger.warn('Bot', '🚨 Kill switch is active, stopping');
@@ -169,12 +169,12 @@ export class IronChainBot {
       preliminarySize.sizeUSDC
     );
 
-    this.logger.debug('Bot', 'Liquidity check result', { liquidity });
+  this.logger.info('Bot', 'Liquidity check result', { liquidity });
 
     // Check entry signal
     const entrySignal = this.entrySignals.checkEntry(candles15m, liquidity);
 
-  this.logger.debug('Bot', 'Entry signal computed', { shouldEnter: entrySignal.shouldEnter, indicators: entrySignal.indicators, reasons: entrySignal.reasons, entryPrice: entrySignal.entryPrice });
+  this.logger.info('Bot', 'Entry signal computed', { shouldEnter: entrySignal.shouldEnter, indicators: entrySignal.indicators, reasons: entrySignal.reasons, entryPrice: entrySignal.entryPrice });
 
     this.auditLogger.logEntryEvaluation(
       entrySignal.shouldEnter ? 'trade' : 'no_trade',
