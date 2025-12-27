@@ -20,6 +20,24 @@ export class PaperExecutor implements Executor {
   }
 
   async initialize(): Promise<void> {
+    // If user provided a starting SOL interactively but did NOT set
+    // the INITIAL_CAPITAL_USDC env var, compute the equivalent USDC
+    // from the current price so the paper wallet reflects the same
+    // total starting equity (sol * price).
+    // We check process.env directly because config.trading.initialCapitalUSDC
+    // will already contain the default (1000) when the env var is not set.
+    if (this.balance.sol > 0 && process.env.INITIAL_CAPITAL_USDC === undefined) {
+      try {
+        const priceData = await this.priceFeed.getPrice();
+        const currentPrice = priceData.price;
+        this.balance.usdc = this.balance.sol * currentPrice;
+      } catch (err) {
+        // if price lookup fails, fall back to configured initial capital
+        // (leave this.balance.usdc as-is)
+        // Optional: we could log a warning here if logger is available.
+      }
+    }
+
     console.log('Paper executor initialized with:', this.balance);
   }
 
