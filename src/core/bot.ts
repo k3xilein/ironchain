@@ -28,6 +28,7 @@ export class IronChainBot {
   
   private isRunning: boolean = false;
   private currentPosition: Position | null = null;
+  private heartbeatHandle: any = null;
 
   constructor(components: {
     config: Config;
@@ -64,6 +65,43 @@ export class IronChainBot {
     });
 
     this.isRunning = true;
+
+    // Start heartbeat logger to emit a liveliness message every minute
+    try {
+  this.heartbeatHandle = (globalThis as any).setInterval(async () => {
+        try {
+          const now = new Date();
+          const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          let status = '';
+          try {
+            const balance = await this.executor.getBalance();
+            const price = (await this.marketData.getCurrentPrice()).price;
+            const equity = balance.usdc + (balance.sol * price);
+
+            if (this.currentPosition) {
+              status = `Pos aktiv — Entry ${this.currentPosition.entryPrice.toFixed(2)}, Amt ${this.currentPosition.amount.toFixed(4)}, Equity ${equity.toFixed(2)} USD`;
+            } else {
+              const riskStatus = this.riskManager.canTrade();
+              if (!riskStatus.canTrade) {
+                status = `Trading pausiert (${riskStatus.reason})`;
+              } else {
+                status = `Scant — keine Möglichkeiten bisher gefunden, Equity ${equity.toFixed(2)} USD`;
+              }
+            }
+          } catch (err) {
+            status = 'Statusunknown — Fehler beim Abrufen von Balance/Price';
+          }
+
+          // German short heartbeat line
+          this.logger.info('Bot', `${time} — Heartbeat: ${status}`);
+        } catch (err) {
+          // swallow
+        }
+      }, 60 * 1000);
+    } catch (err) {
+      this.logger.debug('Bot', 'Failed to start heartbeat', { error: String(err) });
+    }
 
     while (this.isRunning) {
       try {
@@ -456,6 +494,15 @@ export class IronChainBot {
     this.logger.info('Bot', '🛑 Shutting down Iron Chain Bot');
     
     this.isRunning = false;
+    // Stop heartbeat
+    try {
+        if (this.heartbeatHandle) {
+        (globalThis as any).clearInterval(this.heartbeatHandle);
+        this.heartbeatHandle = null;
+      }
+    } catch (err) {
+      this.logger.debug('Bot', 'Failed to clear heartbeat', { error: String(err) });
+    }
     
     // Close any open positions
     await this.closeAllPositions();
