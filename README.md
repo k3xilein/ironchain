@@ -1,3 +1,140 @@
+```markdown
+
+```
+
+---
+
+## 🆕 Wichtige Ergänzungen (STARTING_SOL, Logging, Headless-Betrieb)
+
+Diese Sektion beschreibt neue Umgebungsvariablen und das Verhalten beim Starten des Bots — speziell relevant für Paper-Trading und automatisierte Server-Deployments.
+
+### STARTING_SOL (Paper Mode)
+
+- Zweck: Lege die anfängliche SOL-Balance fest, wenn du im Paper-Modus (simuliertes Trading) startest.
+- Nutzung: Setze die Variable in deiner Shell, in der `.env` Datei oder exportiere sie vor dem Start.
+
+Beispiele:
+
+```bash
+# temporär für die Session
+export STARTING_SOL=1.5
+
+# oder in .env
+echo "STARTING_SOL=1.5" >> .env
+```
+
+Verhalten:
+- Wenn `STARTING_SOL` gesetzt ist, wird dieser Wert beim Initialisieren des `PaperExecutor` verwendet.
+- Wenn `STARTING_SOL` nicht gesetzt ist und der Prozess interaktiv (TTY) läuft, fragt der Bot beim Start nach einem Wert.
+- Wenn `STARTING_SOL` nicht gesetzt ist und der Prozess nicht interaktiv läuft (z. B. Cron / systemd / PM2), verwendet der Bot `0` SOL als Default, um Blockaden beim Start zu vermeiden.
+
+Tipp: Für automatische Deploys/Server-Starts immer `STARTING_SOL` in der Umgebung oder `.env` setzen.
+
+### Live-Console-Logging
+
+Der Bot schreibt strukturierte Log-Nachrichten für folgende Ereignisse:
+
+- Start jeder Run-Cycle (Debug)
+- Analyse für Entries (Info)
+- Liquidity- und Indikator-Ergebnisse (Debug)
+- Erfolgreiche Ausführungen von Entry/Exit (Info)
+- Aktualisierte Balances nach Trades (Info)
+
+Voraussetzung: In deiner Konfiguration sollte Console-Logging aktiviert sein (z. B. `LOG_TO_CONSOLE=true` oder entsprechender Logger-Config). Die Logs werden über die eingebaute `Logger`-Klasse ausgegeben.
+
+Wenn du die Logs dauerhaft speichern möchtest, konfiguriere das Audit-Logging / SQLite database entsprechend (siehe `config/index.ts`).
+
+### Headless / Server-Betrieb
+
+- Empfohlen: setze `STARTING_SOL` in der `.env` oder als Umgebungsvariable.
+- Vermeide interaktive Prompts auf Servern — der Bot verwendet in diesem Fall automatisch den Default (0 SOL), um nicht zu blockieren.
+
+## 🧰 Build & Run (lokal / server)
+
+Empfohlene einfache Schritte zum lokalen Testen und zum Start auf einem Server.
+
+1) Abhängigkeiten installieren
+
+```bash
+npm install
+```
+
+2) TypeScript prüfen (schnell)
+
+```bash
+npx tsc --noEmit
+```
+
+3) Build
+
+```bash
+npm run build
+```
+
+4) Start (Production)
+
+```bash
+# Live Mode
+RUN_MODE=MAINNET_LIVE npm start
+
+# Paper Mode (beachte STARTING_SOL)
+RUN_MODE=PAPER_LIVE STARTING_SOL=1.5 npm start
+```
+
+5) Dev Mode (ts-node, interaktiv)
+
+```bash
+npm run dev:paper
+```
+
+Hinweis: Für nicht-interaktive Serverstarts setze `STARTING_SOL` in der Umgebung oder `.env`.
+
+## 🚀 Deployment & Auto-Update auf Linux-Server
+
+Ein einfaches Deploy-Skript (`scripts/deploy_linux_server_bot.sh`) wurde beigefügt, das folgende Schritte ausführt:
+
+- Git fetch + hard reset auf den Remote-Branch (standardmäßig `main`)
+- `npm ci` / `npm install`
+- `npm run build`
+- Neustart des Prozesses (pm2 bevorzugt, fallback `nohup`/`node`)
+
+Cron-Beispiel (prüft jede Minute):
+
+```cron
+# m h  dom mon dow   command
+* * * * * /home/ironchain/iron-chain/scripts/deploy_linux_server_bot.sh >> /home/ironchain/iron-chain/deploy.log 2>&1
+```
+
+Hinweis: Das Skript ist absichtlich konservativ; prüfe und passe es an deine Server-Policies (SSH-Keys, Benutzer, Pfade) an.
+
+## 🧪 Troubleshooting / TypeScript Hinweise
+
+- Falls der TypeScript-Compiler `Cannot find name 'process'` oder `Cannot find type definition file for 'node'` meldet, stelle sicher, dass die Dev-Dependencies installiert sind (`@types/node`) und dass `tsconfig.json` die Node-Typen enthält.
+
+```bash
+# Installiere Dev-Dependencies
+npm install --save-dev
+
+# Prüfe Node-Typen
+npx tsc --noEmit
+```
+
+- Fehler beim Starten (z. B. fehlende `.env` Variablen): Kopiere `.env.example` zu `.env` und passe die Werte an.
+
+```bash
+cp .env.example .env
+# bearbeite .env
+nano .env
+```
+
+## 📝 Abschluss und Hinweise
+
+Diese Ergänzungen ermöglichen einen robusteren Headless-Betrieb (Server) und vereinfachen das Testen im Paper-Modus durch die `STARTING_SOL`-Variable. Wenn du möchtest, kann ich zusätzlich:
+
+- Ein kurzes Beispielskript hinzufügen, das den Bot für 1-2 Zyklen im Papiermodus startet und die Logs lokal prüft.
+- PM2-Startup-Config / systemd-Service-File erstellen und committen.
+
+Sag mir, welche Ergänzung du bevorzugst — ich kann sie direkt implementieren.
 # ⛓️ Iron Chain – Solana Trading Bot
 
 **Professioneller Regime-basierter Trading Bot für SOL/USDC**
