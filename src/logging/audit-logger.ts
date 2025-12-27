@@ -19,7 +19,7 @@ export interface AuditEntry {
 
 export class AuditLogger {
   private config: Config;
-  private auditLogPath: string;
+  private auditLogPath: string = '';
 
   constructor(config: Config) {
     this.config = config;
