@@ -7,14 +7,14 @@ export class PaperExecutor implements Executor {
   private config: Config;
   private priceFeed: PriceFeed;
   private tradeCount: number = 0;
-
-  constructor(config: Config, priceFeed: PriceFeed) {
+  // startingSol allows initializing the paper wallet with a given SOL amount
+  constructor(config: Config, priceFeed: PriceFeed, startingSol?: number) {
     this.config = config;
     this.priceFeed = priceFeed;
     
     // Initialize with starting capital
     this.balance = {
-      sol: 0,
+      sol: startingSol || 0,
       usdc: config.trading.initialCapitalUSDC,
     };
   }

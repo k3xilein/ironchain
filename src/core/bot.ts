@@ -77,6 +77,8 @@ export class IronChainBot {
   }
 
   private async runCycle(): Promise<void> {
+    // Live log cycle start
+    this.logger.debug('Bot', 'Starting cycle', { pair: this.config.trading.pair, timestamp: Date.now() });
     // Check kill switch
     if (this.killSwitch.isTriggered()) {
       this.logger.warn('Bot', '🚨 Kill switch is active, stopping');
@@ -138,6 +140,7 @@ export class IronChainBot {
   }
 
   private async checkEntry(): Promise<void> {
+    this.logger.info('Bot', 'Analyzing for possible entries', { pair: this.config.trading.pair, timeframe: '15m' });
     const candles15m = this.marketData.getCandles('15m');
     
     if (!this.marketData.hasEnoughData('15m', this.config.entry.donchianPeriod + 50)) {
@@ -166,8 +169,12 @@ export class IronChainBot {
       preliminarySize.sizeUSDC
     );
 
+    this.logger.debug('Bot', 'Liquidity check result', { liquidity });
+
     // Check entry signal
     const entrySignal = this.entrySignals.checkEntry(candles15m, liquidity);
+
+  this.logger.debug('Bot', 'Entry signal computed', { shouldEnter: entrySignal.shouldEnter, indicators: entrySignal.indicators, reasons: entrySignal.reasons, entryPrice: entrySignal.entryPrice });
 
     this.auditLogger.logEntryEvaluation(
       entrySignal.shouldEnter ? 'trade' : 'no_trade',
@@ -264,6 +271,14 @@ export class IronChainBot {
         amount: result.amount,
         txHash: result.txHash,
       });
+
+      // Log updated balance after entry
+      try {
+        const newBalance = await this.executor.getBalance();
+        this.logger.info('Bot', 'Balance updated (post-entry)', newBalance);
+      } catch (err) {
+        this.logger.debug('Bot', 'Failed to fetch balance after entry', { error: String(err) });
+      }
 
     } catch (error) {
       this.logger.error('Bot', 'Entry execution error', { error });
@@ -373,6 +388,14 @@ export class IronChainBot {
         rMultiple,
         txHash: result.txHash,
       });
+
+      // Log updated balance after exit
+      try {
+        const newBalance = await this.executor.getBalance();
+        this.logger.info('Bot', 'Balance updated (post-exit)', newBalance);
+      } catch (err) {
+        this.logger.debug('Bot', 'Failed to fetch balance after exit', { error: String(err) });
+      }
 
     } catch (error) {
       this.logger.error('Bot', 'Exit execution error', { error });

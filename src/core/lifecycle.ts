@@ -16,6 +16,7 @@ import { TradingDatabase } from '../logging/database';
 import { ReportGenerator } from '../reporting/report-generator';
 import { testRPCConnection } from '../utils/validation';
 import { PriceFeed } from '../data/price-feed';
+import * as readline from 'readline';
 
 export async function startup(): Promise<IronChainBot> {
   console.log('⛓️  Iron Chain - Initializing...\n');
@@ -71,7 +72,34 @@ export async function startup(): Promise<IronChainBot> {
     executor = new LiveExecutor(config);
   } else {
     console.log('📄 PAPER MODE - Simulated trading');
-    executor = new PaperExecutor(config, priceFeed);
+
+    // Determine starting SOL for paper trading.
+    // Prefer environment variable STARTING_SOL for non-interactive/server usage.
+    let startingSol = 0;
+    const envVal = process.env.STARTING_SOL;
+    if (envVal) {
+      const parsed = parseFloat(envVal);
+      if (!isNaN(parsed) && parsed >= 0) {
+        startingSol = parsed;
+      }
+      console.log(`Using starting SOL from STARTING_SOL env: ${startingSol}`);
+    } else if (process.stdin && process.stdin.isTTY) {
+      // Interactive prompt only when running in a TTY
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const question = (q: string) => new Promise<string>(resolve => rl.question(q, resolve));
+      const answer = await question(`Enter starting SOL amount for Paper Trading (e.g. 1.5) [default 0]: `);
+      rl.close();
+      const parsed = parseFloat(answer.trim());
+      if (!isNaN(parsed) && parsed >= 0) {
+        startingSol = parsed;
+      }
+      console.log(`Using starting SOL (paper): ${startingSol}`);
+    } else {
+      // Non-interactive and no env var: default to 0
+      console.log('No STARTING_SOL provided and not running interactively — using 0 SOL for paper trading');
+    }
+
+    executor = new PaperExecutor(config, priceFeed, startingSol);
   }
   
   await executor.initialize();
