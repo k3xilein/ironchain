@@ -523,4 +523,36 @@ export class IronChainBot {
     }
     return 0;
   }
+
+  // Exposed helper methods for external control / UI integration
+  /**
+   * Returns a lightweight status object useful for Web UI or health checks.
+   */
+  async getStatus(): Promise<{ isRunning: boolean; hasPosition: boolean; currentPosition?: Position | null }> {
+    return {
+      isRunning: this.isRunning,
+      hasPosition: !!this.currentPosition,
+      currentPosition: this.currentPosition,
+    };
+  }
+
+  /**
+   * Returns the current executor balance (sol/usdc)
+   */
+  async getBalance(): Promise<{ sol: number; usdc: number }> {
+    try {
+      const b = await this.executor.getBalance();
+      return { sol: b.sol, usdc: b.usdc };
+    } catch (err) {
+      this.logger.debug('Bot', 'getBalance failed', { error: String(err) });
+      return { sol: 0, usdc: 0 };
+    }
+  }
+
+  /**
+   * Returns currently tracked open positions (in-memory snapshot)
+   */
+  getActiveTrades(): Position[] {
+    return this.riskManager.getOpenPositions();
+  }
 }
