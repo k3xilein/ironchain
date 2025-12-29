@@ -73,6 +73,8 @@ export interface TimingConfig {
   txConfirmationTimeout: number;
   // Milliseconds to cache latest fetched USD price before refreshing
   priceCacheTTL?: number;
+  // Heartbeat interval in milliseconds (default ~2.5 minutes)
+  heartbeatIntervalMs?: number;
 }
 
 export interface LoggingConfig {

@@ -66,39 +66,97 @@ export class IronChainBot {
 
     this.isRunning = true;
 
-    // Start heartbeat logger to emit a liveliness message every minute
+    // Start heartbeat logger to emit a liveliness message at configured interval
     try {
-  this.heartbeatHandle = (globalThis as any).setInterval(async () => {
+      const hbInterval = (this.config.timing && (this.config.timing as any).heartbeatIntervalMs) || 150000;
+      this.heartbeatHandle = (globalThis as any).setInterval(async () => {
         try {
           const now = new Date();
           const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-          let status = '';
+          // Compute lightweight market score (1-10) and 1-2 short reasons
+          let marketScore = 5;
+          const reasons: string[] = [];
+
           try {
             const balance = await this.executor.getBalance();
             const price = (await this.marketData.getCurrentPrice()).price;
             const equity = balance.usdc + (balance.sol * price);
 
+            // Regime analysis (4h) if enough data
+            try {
+              if (this.marketData.hasEnoughData('4h', this.config.regime.emaSlow + 50)) {
+                const regimeAnalysis = this.regimeFilter.analyze(this.marketData.getCandles('4h'));
+                if (regimeAnalysis.regime === 'BULL') {
+                  marketScore += Math.round(regimeAnalysis.confidence * 3);
+                  reasons.push(`Bull trend (${(regimeAnalysis.confidence * 100).toFixed(0)}% conf)`);
+                } else if (regimeAnalysis.regime === 'BEAR') {
+                  marketScore -= Math.round(regimeAnalysis.confidence * 3);
+                  reasons.push(`Bear trend (${(regimeAnalysis.confidence * 100).toFixed(0)}% conf)`);
+                } else {
+                  reasons.push('Sideways / mixed signals');
+                }
+              } else {
+                reasons.push('Insufficient 4h data');
+              }
+            } catch (err) {
+              reasons.push('Regime analysis failed');
+            }
+
+            // Entry signal (15m) quick check to see if there's a near-term opportunity
+            try {
+              if (this.marketData.hasEnoughData('15m', this.config.entry.donchianPeriod + 50)) {
+                const candles15 = this.marketData.getCandles('15m');
+                // approximate size as used in entry path
+                const preliminary = this.positionSizer.calculate({
+                  equity,
+                  entryPrice: price,
+                  stopPrice: price * 0.97,
+                  riskPercent: this.config.risk.riskPerTrade,
+                  maxPositionPercent: this.config.risk.maxPositionSize,
+                });
+                const liquidity = await this.entrySignals.checkLiquidity(price, preliminary.sizeUSDC);
+                const entry = this.entrySignals.checkEntry(candles15, liquidity);
+                if (entry.shouldEnter) {
+                  marketScore += Math.round(entry.confidence * 2);
+                  reasons.push(`Entry candidate: ${(entry.confidence * 100).toFixed(0)}%`);
+                } else {
+                  // add one reason for visibility
+                  if (entry.reasons && entry.reasons.length > 0) {
+                    reasons.push(entry.reasons[0]);
+                  }
+                }
+              } else {
+                reasons.push('Insufficient 15m data');
+              }
+            } catch (err) {
+              reasons.push('Entry check failed');
+            }
+
+            // Bound score to 1..10
+            marketScore = Math.max(1, Math.min(10, marketScore));
+
+            // Compose status
+            let status = '';
             if (this.currentPosition) {
               status = `Pos aktiv — Entry ${this.currentPosition.entryPrice.toFixed(2)}, Amt ${this.currentPosition.amount.toFixed(4)}, Equity ${equity.toFixed(2)} USD`;
             } else {
               const riskStatus = this.riskManager.canTrade();
               if (!riskStatus.canTrade) {
-                status = `Trading pausiert (${riskStatus.reason})`;
+                status = `Trading paused (${riskStatus.reason})`;
               } else {
-                status = `Scant — keine Möglichkeiten bisher gefunden, Equity ${equity.toFixed(2)} USD`;
+                status = `Market-Score ${marketScore}/10 — ${reasons.slice(0,2).join('; ')} — Equity ${equity.toFixed(2)} USD`;
               }
             }
-          } catch (err) {
-            status = 'Statusunknown — Fehler beim Abrufen von Balance/Price';
-          }
 
-          // German short heartbeat line
-          this.logger.info('Bot', `${time} — Heartbeat: ${status}`);
+            this.logger.info('Bot', `${time} — Heartbeat: ${status}`);
+          } catch (err) {
+            this.logger.info('Bot', `${time} — Heartbeat: Status unknown (error computing market score)`);
+          }
         } catch (err) {
           // swallow
         }
-      }, 60 * 1000);
+      }, hbInterval);
     } catch (err) {
       this.logger.debug('Bot', 'Failed to start heartbeat', { error: String(err) });
     }
