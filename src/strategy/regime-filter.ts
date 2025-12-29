@@ -21,12 +21,16 @@ export class RegimeFilter {
     this.config = config;
   }
 
-  analyze(candles: Candle[]): RegimeAnalysis {
+  analyze(candles: Candle[], livePrice?: number): RegimeAnalysis {
     if (candles.length === 0) {
       throw new Error('No candles provided for regime analysis');
     }
 
-    const currentPrice = candles[candles.length - 1].close;
+    // If a livePrice is provided use it for the regime price comparison so
+    // the operator sees decisions that reflect the current market tick. If
+    // not provided, fall back to the last closed candle on the regime
+    // timeframe (4h) which is the historical baseline.
+    const currentPrice = (typeof livePrice === 'number' && isFinite(livePrice)) ? livePrice : candles[candles.length - 1].close;
     const ema50 = getLatestEMA(candles, this.config.emaFast);
     const ema200 = getLatestEMA(candles, this.config.emaSlow);
     const adx = getLatestADX(candles, this.config.adxPeriod);

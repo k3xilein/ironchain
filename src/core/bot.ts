@@ -86,10 +86,12 @@ export class IronChainBot {
             const price = (await this.marketData.getCurrentPrice(true)).price;
             const equity = balance.usdc + (balance.sol * price);
 
-            // Regime analysis (4h) if enough data
-            try {
-              if (this.marketData.hasEnoughData('4h', this.config.regime.emaSlow + 50)) {
-                const regimeAnalysis = this.regimeFilter.analyze(this.marketData.getCandles('4h'));
+                    // Regime analysis (4h) if enough data — use live price so reasons reflect
+                    // the current market tick rather than a stale 4h candle close.
+                    try {
+                      const livePrice = (await this.marketData.getCurrentPrice(true)).price;
+                      if (this.marketData.hasEnoughData('4h', this.config.regime.emaSlow + 50)) {
+                        const regimeAnalysis = this.regimeFilter.analyze(this.marketData.getCandles('4h'), livePrice);
                 if (regimeAnalysis.regime === 'BULL') {
                   marketScore += Math.round(regimeAnalysis.confidence * 3);
                   reasons.push(`Bull trend (${(regimeAnalysis.confidence * 100).toFixed(0)}% conf)`);
@@ -248,7 +250,10 @@ export class IronChainBot {
       return;
     }
 
-    const regimeAnalysis = this.regimeFilter.analyze(candles4h);
+    // Use live price for regime analysis so decisions and logged reasons
+    // reflect the current market tick rather than the last closed 4h candle.
+    const livePriceForRegime = (await this.marketData.getCurrentPrice(true)).price;
+    const regimeAnalysis = this.regimeFilter.analyze(candles4h, livePriceForRegime);
     this.auditLogger.logRegimeCheck(
       regimeAnalysis.regime,
       regimeAnalysis.indicators,
