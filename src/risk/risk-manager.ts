@@ -15,6 +15,8 @@ export class RiskManager {
   private currentEquity: number;
   private openPositions: Position[] = [];
   private killSwitchTriggered: boolean = false;
+  private startedAt: number = Date.now();
+  private startupGraceMs: number = 60 * 1000; // 60 seconds grace period on startup
 
   constructor(config: RiskConfig, initialEquity: number) {
     this.config = config;
@@ -49,6 +51,18 @@ export class RiskManager {
 
   canTrade(): RiskStatus {
     const drawdownCheck = this.checkDrawdown();
+
+    // During a short startup grace period, avoid triggering the kill switch
+    // immediately due to HWM mismatches when the process is just starting
+    // up and balances/prices are still being derived.
+    if (Date.now() - this.startedAt < this.startupGraceMs) {
+      return {
+        canTrade: true,
+        currentDrawdown: drawdownCheck.currentDD,
+        highWaterMark: this.highWaterMark,
+        currentEquity: this.currentEquity,
+      };
+    }
 
     // Check kill switch
     if (this.killSwitchTriggered) {
