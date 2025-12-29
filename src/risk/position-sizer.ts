@@ -61,10 +61,21 @@ export class PositionSizer {
   } {
     // Check minimum size
     if (size.sizeUSDC < 10) {
-      return {
-        valid: false,
-        reason: 'Position size too small (min $10)',
-      };
+      // Allow a relaxed minimum when running a forced PAPER execution test.
+      // This is controlled by environment variables so production behavior
+      // is unchanged. In test mode, accept sizes >= $1 so we can validate
+      // the execution path end-to-end without large capital.
+      const forceTest = (process.env.FORCE_PAPER_EXECUTE === 'true') && (process.env.RUN_MODE === 'PAPER_LIVE');
+      if (forceTest) {
+        if (size.sizeUSDC < 1) {
+          return { valid: false, reason: 'Position size too small (min $1 in test mode)' };
+        }
+      } else {
+        return {
+          valid: false,
+          reason: 'Position size too small (min $10)',
+        };
+      }
     }
 
     // Check against max position
