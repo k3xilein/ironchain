@@ -7,6 +7,7 @@ import { PositionSizer } from '../risk/position-sizer';
 import { RiskManager } from '../risk/risk-manager';
 import { KillSwitch } from '../risk/kill-switch';
 import { Executor } from '../execution/executor';
+import { getLatestEMA, getLatestADX } from '../strategy/indicators';
 import { Logger } from '../logging/logger';
 import { AuditLogger } from '../logging/audit-logger';
 import { TradingDatabase } from '../logging/database';
@@ -189,6 +190,39 @@ export class IronChainBot {
 
     // Update equity
     await this.updateEquity();
+
+    // Per-cycle diagnostics (compact): provider, price, EMA50/EMA200, ADX, lightweight market-score
+    try {
+      const priceData = await this.marketData.getCurrentPrice(true);
+      const provider = priceData?.source || 'unknown';
+      const currentPrice = priceData.price;
+      const candles15 = this.marketData.getCandles('15m');
+      const ema50 = getLatestEMA(candles15, 50);
+      const ema200 = getLatestEMA(candles15, 200);
+      const adx = getLatestADX(candles15, this.config.regime.adxPeriod);
+
+      const fmt = (v: any, d = 2) => (typeof v === 'number' && isFinite(v) ? v.toFixed(d) : 'n/a');
+
+      let marketScoreLocal = 5;
+      const reasonsLocal: string[] = [];
+      if (typeof ema50 === 'number' && typeof ema200 === 'number') {
+        if (ema50 > ema200) { marketScoreLocal += 1; reasonsLocal.push('EMA50>EMA200'); }
+        else { marketScoreLocal -= 1; reasonsLocal.push('EMA50<EMA200'); }
+      } else {
+        reasonsLocal.push('EMA N/A');
+      }
+      if (typeof adx === 'number') {
+        if (adx >= this.config.regime.adxThreshold) { marketScoreLocal += 1; reasonsLocal.push(`ADX${Math.round(adx)}`); }
+        else { reasonsLocal.push(`ADX${Math.round(adx)}`); }
+      } else {
+        reasonsLocal.push('ADX N/A');
+      }
+      marketScoreLocal = Math.max(1, Math.min(10, marketScoreLocal));
+
+      this.logger.info('Bot', `Diag — src=${provider} price=${fmt(currentPrice)} EMA50=${fmt(ema50)} EMA200=${fmt(ema200)} ADX=${fmt(adx,1)} MS=${marketScoreLocal}/10 reasons=${reasonsLocal.slice(0,2).join('; ')}`);
+    } catch (err) {
+      this.logger.debug('Bot', 'Cycle diagnostics failed', { error: String(err) });
+    }
 
     // Check risk limits
     const riskStatus = this.riskManager.canTrade();

@@ -24,8 +24,76 @@ export class MarketData {
 
   async initialize(): Promise<void> {
     try { await this.bootstrapFourHourMarketContext(); } catch (e) { this.logWarn('MarketData', '4h bootstrap failed at init', String(e)); }
+    // Ensure 15m history is available for entry signals (donchian, RSI etc.)
+    try { await this.bootstrapFifteenMinuteMarketContext(); } catch (e) { this.logWarn('MarketData', '15m bootstrap failed at init', String(e)); }
     try { await this.preloadHistoricalPrices(7); } catch (e) { this.logWarn('MarketData', 'preload historical failed at init', String(e)); }
     try { await this.update(); } catch (e) { /* best-effort */ }
+  }
+
+  async bootstrapFifteenMinuteMarketContext(count?: number): Promise<boolean> {
+    const requiredFromConfig = (this.config?.entry && (this.config.entry as any).donchianPeriod) ? ((this.config.entry as any).donchianPeriod + 50) : 120;
+    const targetCount = (typeof count === 'number' && count > 0) ? count : requiredFromConfig;
+    if (targetCount <= 0) return false;
+
+    try {
+      // Prefer Binance 15m klines for reliable OHLCV history
+      const symbol = 'SOLUSDT';
+      const limit = Math.min(Math.max(targetCount, 120), 1000);
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=${limit}`;
+      const resp = await axios.get(url, { timeout: 10000 });
+      if (Array.isArray(resp.data) && resp.data.length > 0) {
+        const candleList: Candle[] = resp.data.map((k: any[]) => ({ timestamp: Number(k[0]), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) } as Candle));
+        if (candleList.length >= Math.min(50, targetCount)) {
+          const toInject = candleList.slice(-targetCount);
+          this.candleBuilder.injectHistoricalCandles('15m', toInject);
+          this.logInfo('MarketData', `bootstrapFifteenMinuteMarketContext: injected ${toInject.length} 15m candles from Binance`);
+          return true;
+        }
+      }
+    } catch (err) {
+      this.logWarn('MarketData', 'bootstrapFifteenMinuteMarketContext: Binance attempt failed', String(err));
+    }
+
+    // Fallback to CoinGecko market_chart (per-minute). We'll sample into 15m buckets.
+    try {
+      const minutesNeeded = Math.ceil((targetCount * 15) / 60 / 24) + 1; // days param
+      const url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${minutesNeeded}`;
+      const resp = await axios.get(url, { timeout: 15000 });
+      const prices: Array<[number, number]> = resp.data?.prices || [];
+      if (Array.isArray(prices) && prices.length > 0) {
+        const FIFTEEN = 15 * 60 * 1000;
+        const buckets: Map<number, number[]> = new Map();
+        const lastClosedEnd = Math.floor(Date.now() / FIFTEEN) * FIFTEEN;
+        for (const [ts, p] of prices) {
+          const start = Math.floor(ts / FIFTEEN) * FIFTEEN;
+          const end = start + FIFTEEN;
+          if (end > lastClosedEnd) continue;
+          const arr = buckets.get(start) || [];
+          arr.push(p);
+          buckets.set(start, arr);
+        }
+        const candleList: Candle[] = [];
+        for (const [start, vals] of buckets) {
+          if (!vals || vals.length === 0) continue;
+          const open = vals[0];
+          const close = vals[vals.length - 1];
+          candleList.push({ timestamp: start, open, high: Math.max(...vals), low: Math.min(...vals), close, volume: 0 });
+        }
+        if (candleList.length > 0) {
+          candleList.sort((a, b) => a.timestamp - b.timestamp);
+          const selected = candleList.slice(-targetCount);
+          if (selected.length >= Math.min(50, targetCount)) {
+            this.candleBuilder.injectHistoricalCandles('15m', selected);
+            this.logInfo('MarketData', `bootstrapFifteenMinuteMarketContext: injected ${selected.length} 15m candles from CoinGecko`);
+            return true;
+          }
+        }
+      }
+    } catch (err) {
+      this.logWarn('MarketData', 'bootstrapFifteenMinuteMarketContext: CoinGecko fallback failed', String(err));
+    }
+
+    return false;
   }
 
   async bootstrapFourHourMarketContext(count?: number): Promise<boolean> {
