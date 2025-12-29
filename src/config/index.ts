@@ -113,6 +113,7 @@ export function loadConfig(): Config {
       checkInterval: getEnvNumber('CHECK_INTERVAL', 5000),
       candleCloseDelay: getEnvNumber('CANDLE_CLOSE_DELAY', 2000),
       txConfirmationTimeout: getEnvNumber('TX_CONFIRMATION_TIMEOUT', 30000),
+      priceCacheTTL: getEnvNumber('PRICE_CACHE_TTL', 30000),
     },
     
     logging: {

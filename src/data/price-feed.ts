@@ -16,6 +16,9 @@ export class PriceFeed {
   private cachedPrice: PriceData | null = null;
   private lastUpdateTime: number = 0;
   private cacheTTL: number = 30 * 1000; // default 30s cache
+  // Pyth clamp bounds (USD)
+  private readonly PYTH_MIN_PRICE = 0.01; // $0.01
+  private readonly PYTH_MAX_PRICE = 10_000; // $10k
 
   constructor(config: Config) {
     this.config = config;
@@ -93,7 +96,7 @@ export class PriceFeed {
       const resp = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { timeout: 5000 });
       const price = resp.data?.solana?.usd;
       if (!price || typeof price !== 'number') throw new Error('Invalid CoinGecko response');
-      return { price, timestamp: Date.now(), confidence: 0, source: 'jupiter' as any };
+      return { price, timestamp: Date.now(), confidence: 0, source: 'coingecko' };
     } catch (err) {
       throw new Error(`CoinGecko price fetch failed: ${String(err)}`);
     }
@@ -130,14 +133,20 @@ export class PriceFeed {
       const priceDecimal = Number(price) * Math.pow(10, expo);
       const confidenceDecimal = Number(confidence) * Math.pow(10, expo);
 
-      // Basic sanity check — if the parsed price is absurdly large/small, return null
-      if (!this.isPriceReasonable(priceDecimal)) {
-        console.warn(`Parsed Pyth price unreasonable: ${priceDecimal}`);
+      // Clamp Pyth price to reasonable bounds to protect against parsing anomalies
+      let clampedPrice = priceDecimal;
+      if (!isFinite(clampedPrice) || clampedPrice <= 0) {
+        console.warn(`Parsed Pyth price invalid: ${priceDecimal}`);
         return null;
       }
 
+      if (clampedPrice < this.PYTH_MIN_PRICE || clampedPrice > this.PYTH_MAX_PRICE) {
+        console.warn(`Pyth price out of bounds (${clampedPrice}), clamping to [${this.PYTH_MIN_PRICE}, ${this.PYTH_MAX_PRICE}]`);
+        clampedPrice = Math.max(this.PYTH_MIN_PRICE, Math.min(this.PYTH_MAX_PRICE, clampedPrice));
+      }
+
       return {
-        price: priceDecimal,
+        price: clampedPrice,
         timestamp: publishTime * 1000,
         confidence: confidenceDecimal,
         source: 'pyth',

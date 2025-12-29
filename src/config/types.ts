@@ -71,6 +71,8 @@ export interface TimingConfig {
   checkInterval: number;
   candleCloseDelay: number;
   txConfirmationTimeout: number;
+  // Milliseconds to cache latest fetched USD price before refreshing
+  priceCacheTTL?: number;
 }
 
 export interface LoggingConfig {
