@@ -6,7 +6,7 @@ export interface PriceData {
   price: number;
   timestamp: number;
   confidence: number;
-  source: 'pyth' | 'jupiter';
+  source: 'pyth' | 'jupiter' | 'coingecko' | 'preload';
 }
 
 export class PriceFeed {

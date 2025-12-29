@@ -26,8 +26,24 @@ export class MarketData {
       console.warn('Historical preload failed, falling back to live ticks', String(err));
     }
 
-    // Fetch initial price to populate/update current candle
-    await this.update();
+    // Fetch initial price to populate/update current candle. If the
+    // price feed is temporarily unavailable (rate limits / DNS), fall
+    // back to the last preloaded candle so startup can continue.
+    try {
+      await this.update();
+    } catch (err) {
+      // Attempt to derive a reasonable price from preloaded candles
+      const recent15 = this.candleBuilder.getCurrentCandle('15m') || this.candleBuilder.getCandles('15m').slice(-1)[0];
+      if (recent15 && recent15.close && isFinite(recent15.close)) {
+        this.lastUpdate = Date.now();
+        console.warn('MarketData.update failed; using last preloaded candle price as current price', recent15.close, String(err));
+        // Do not throw — allow startup to continue using preloaded data
+        return;
+      }
+
+      // No fallback available — rethrow the error to let caller handle it
+      throw err;
+    }
   }
 
   /**
@@ -89,7 +105,23 @@ export class MarketData {
   }
 
   async getCurrentPrice(): Promise<PriceData> {
-    return this.priceFeed.getPrice();
+    try {
+      return await this.priceFeed.getPrice();
+    } catch (err) {
+      // Fallback: use last preloaded/current candle price if price feed fails
+      const recent15 = this.candleBuilder.getCurrentCandle('15m') || this.candleBuilder.getCandles('15m').slice(-1)[0];
+      if (recent15 && recent15.close && isFinite(recent15.close)) {
+        return {
+          price: recent15.close,
+          timestamp: recent15.timestamp,
+          confidence: 0,
+          source: 'preload',
+        };
+      }
+
+      // Re-throw if we have no reasonable fallback
+      throw err;
+    }
   }
 
   getCandles(timeframe: '15m' | '1h' | '4h', count?: number): Candle[] {
