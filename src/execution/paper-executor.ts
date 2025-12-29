@@ -24,6 +24,11 @@ export class PaperExecutor implements Executor {
     // from a live price lookup (Jupiter/Pyth). We will attempt a few retries
     // to make the result robust on flaky networks. Only if all attempts
     // fail will we fall back to the configured initial capital.
+    // NOTE: when STARTING_SOL is provided we treat it as the initial SOL
+    // balance (i.e. the paper wallet holds SOL). We DO NOT also credit the
+    // equivalent USDC amount into the account because that would double-
+    // count the same value in the total equity (SOL + USDC). If you want
+    // both asset balances, set them explicitly in a custom startup flow.
     if (this.balance.sol > 0) {
       const maxAttempts = 3;
       let priceFound: number | null = null;
@@ -43,10 +48,16 @@ export class PaperExecutor implements Executor {
       }
 
       if (priceFound !== null) {
-        this.balance.usdc = this.balance.sol * priceFound;
-        console.log(`Paper executor initialized with live price ${priceFound} ->`, this.balance);
+        // Do NOT set usdc to sol*price (that would double-count). Instead
+        // keep the SOL balance and set USDC to 0 so equity = sol*price.
+        const approxUSDC = this.balance.sol * priceFound;
+        this.balance.usdc = 0;
+        console.log(`Paper executor initialized with ${this.balance.sol} SOL (~${approxUSDC.toFixed(2)} USDC at ${priceFound}). Balance:`, this.balance);
       } else {
-        console.warn('Paper executor: failed to fetch live price after retries — falling back to configured INITIAL_CAPITAL_USDC', this.balance);
+        // If we can't fetch a price, fall back to configured initial capital
+        // but keep SOL amount as provided. This is a conservative fallback.
+        this.balance.usdc = this.config.trading.initialCapitalUSDC;
+        console.warn('Paper executor: failed to fetch live price after retries — using configured INITIAL_CAPITAL_USDC as USDC balance', this.balance);
       }
     } else {
       console.log('Paper executor initialized with:', this.balance);
