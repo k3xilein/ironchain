@@ -6,7 +6,7 @@ export interface PriceData {
   price: number;
   timestamp: number;
   confidence: number;
-  source: 'pyth' | 'jupiter' | 'coingecko' | 'preload';
+  source: 'pyth' | 'jupiter' | 'coingecko' | 'binance' | 'preload';
 }
 
 export class PriceFeed {
@@ -47,8 +47,10 @@ export class PriceFeed {
         return cg;
       }
     } catch (err) {
-      // If we have a cached price use it rather than immediately failing
-      if (this.cachedPrice) {
+      // If we have a cached price and the caller did NOT force a fresh fetch,
+      // return the cached value. If force === true we must attempt the other
+      // providers and only fall back to cache as a last resort (or throw).
+      if (this.cachedPrice && !force) {
         console.warn('CoinGecko fetch failed; returning cached price', String(err));
         return this.cachedPrice;
       }
@@ -63,7 +65,7 @@ export class PriceFeed {
         return jupiterPrice;
       }
     } catch (err) {
-      if (this.cachedPrice) {
+      if (this.cachedPrice && !force) {
         console.warn('Jupiter fetch failed; returning cached price', String(err));
         return this.cachedPrice;
       }
@@ -78,7 +80,7 @@ export class PriceFeed {
         return pythPrice;
       }
     } catch (err) {
-      if (this.cachedPrice) {
+      if (this.cachedPrice && !force) {
         console.warn('Pyth fetch failed; returning cached price', String(err));
         return this.cachedPrice;
       }
