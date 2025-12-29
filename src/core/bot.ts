@@ -219,11 +219,20 @@ export class IronChainBot {
       regimeAnalysis.reasons
     );
 
-    if (!this.regimeFilter.canTrade(regimeAnalysis.regime)) {
-      this.logger.info('Bot', `Regime is ${regimeAnalysis.regime}, skipping`, {
-        reasons: regimeAnalysis.reasons,
-      });
-      return;
+    // Allow an operator-controlled override for PAPER mode to force trading
+    // when testing. Set environment variable FORCE_PAPER_TRADE=true to
+    // override the regime filter. This is intentionally conservative and
+    // only applies when running in PAPER_LIVE mode.
+    const forcePaperOverride = (this.config.runMode === 'PAPER_LIVE') && (process.env.FORCE_PAPER_TRADE === 'true');
+    if (forcePaperOverride) {
+      this.logger.info('Bot', 'FORCE_PAPER_TRADE active — overriding regime filter (PAPER mode)');
+    } else {
+      if (!this.regimeFilter.canTrade(regimeAnalysis.regime)) {
+        this.logger.info('Bot', `Regime is ${regimeAnalysis.regime}, skipping`, {
+          reasons: regimeAnalysis.reasons,
+        });
+        return;
+      }
     }
 
     // Check for entry if no position
