@@ -112,7 +112,10 @@ export async function startup(): Promise<IronChainBot> {
   // high-water-mark matches reality.
   try {
     const bal = await executor.getBalance();
-    const currentPrice = (await priceFeed.getPrice()).price;
+    // Use MarketData's current price (already initialized and possibly
+    // preloaded) rather than querying PriceFeed directly to reduce
+    // chances of transient fetch errors during startup.
+    const currentPrice = (await marketData.getCurrentPrice()).price;
     const initialEquity = bal.usdc + (bal.sol * currentPrice);
     riskManager = new RiskManager(config.risk, initialEquity);
     console.log(`✅ RiskManager initialized with initial equity: ${initialEquity.toFixed(2)} USD`);
