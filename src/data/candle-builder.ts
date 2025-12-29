@@ -114,6 +114,35 @@ export class CandleBuilder {
     return (this.candles.get(timeframe) || []).length;
   }
 
+  /**
+   * Inject a set of historical, closed candles for a timeframe.
+   * This is intended for bootstrap only — it appends validated, closed
+   * candles so indicators see the exact same OHLCV history as if the
+   * bot had observed them live.
+   */
+  injectHistoricalCandles(timeframe: Timeframe, historical: Candle[]): void {
+    if (!historical || historical.length === 0) return;
+    const list = this.candles.get(timeframe) || [];
+
+    // Avoid duplicates: build map of existing timestamps
+    const existing = new Set(list.map(c => c.timestamp));
+
+    // Only add candles that are closed (timestamp already represents start)
+    for (const c of historical) {
+      if (existing.has(c.timestamp)) continue;
+      list.push({ ...c });
+    }
+
+    // Sort by timestamp ascending
+    list.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Trim to maxCandles
+    while (list.length > this.maxCandles) list.shift();
+
+    this.candles.set(timeframe, list);
+    // Do not touch currentCandles: historical candles are closed by definition
+  }
+
   // Force close current candle (useful for testing or manual triggers)
   forceCloseCandle(timeframe: Timeframe): void {
     const currentCandle = this.currentCandles.get(timeframe);

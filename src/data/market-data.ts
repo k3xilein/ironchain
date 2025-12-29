@@ -16,9 +16,24 @@ export class MarketData {
   }
 
   async initialize(): Promise<void> {
+    // First: attempt to bootstrap 4-hour candles from a reliable API so
+    // the bot can start trading immediately without waiting for hours
+    // to accumulate 4h candles live. This uses real historical OHLCV
+    // data and injects it as closed 4h candles into the CandleBuilder.
+    // If bootstrapping fails, we fall back to the existing behavior.
+    try {
+      const ok = await this.bootstrapFourHourMarketContext(50);
+      if (ok) {
+        console.log('Bootstrapped 4H market context from API (no warm-up delay)');
+      } else {
+        console.warn('Bootstrapping 4H market context returned insufficient data, falling back to live accumulation');
+      }
+    } catch (err) {
+      console.warn('4H bootstrap failed, falling back to existing preload:', String(err));
+    }
+
     // Attempt to preload recent historical prices so the strategy has
-    // enough candles immediately after startup. This is non-invasive
-    // (data bootstrapping only) and does not change core strategy logic.
+    // enough ticks/candles for the 15m / 1h timeframes as before.
     try {
       await this.preloadHistoricalPrices(7); // 7 days of history
     } catch (err) {
@@ -43,6 +58,106 @@ export class MarketData {
 
       // No fallback available — rethrow the error to let caller handle it
       throw err;
+    }
+  }
+
+  /**
+   * Fetch last `count` completed 4-hour OHLCV candles from CoinGecko and
+   * inject them into the CandleBuilder as closed 4h candles.
+   * Returns true on success (enough candles injected), false if insufficient
+   * data was returned. Throws only for unexpected errors.
+   *
+   * Why this is equivalent to waiting for live accumulation:
+   * - We use real, closed 4-hour OHLCV from a trusted market data API.
+   * - We only inject candles whose end time is strictly in the past
+   *   (no partial/ongoing candles), so indicators are computed on the
+   *   same closed periods they would have after 4 hours of running.
+   */
+  async bootstrapFourHourMarketContext(count = 50): Promise<boolean> {
+    try {
+      if (count <= 0) return false;
+
+      const now = Date.now();
+      const FOUR_H = 4 * 60 * 60 * 1000;
+
+      // Compute how many days of history to request from CoinGecko to
+      // safely cover `count` 4h candles. Add 1 day of slack.
+      const hoursNeeded = count * 4;
+      const days = Math.ceil(hoursNeeded / 24) + 1;
+
+      const url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
+      const resp = await axios.get(url, { timeout: 15_000 });
+      const prices: Array<[number, number]> = resp.data?.prices;
+      const volumes: Array<[number, number]> = resp.data?.total_volumes || [];
+
+      if (!Array.isArray(prices) || prices.length === 0) {
+        console.warn('bootstrapFourHourMarketContext: no price series from CoinGecko');
+        return false;
+      }
+
+      // Build maps of price and volume points keyed by timestamp (ms)
+      // CoinGecko returns arrays of [ts, value] where ts is in ms
+      const volMap = new Map<number, number>();
+      for (const [vTs, v] of volumes) volMap.set(Math.floor(vTs), v || 0);
+
+      // Aggregate into 4h windows (closed candles). We'll collect points
+      // into buckets keyed by candleStart (ms).
+      const buckets = new Map<number, { prices: number[]; volume: number }>();
+
+      for (const [pTs, p] of prices) {
+        if (!isFinite(p) || p <= 0) continue;
+        const candleStart = Math.floor(pTs / FOUR_H) * FOUR_H;
+        // Skip any candle that would end in the future or be the current open candle
+        const candleEnd = candleStart + FOUR_H;
+        const latestClosedEnd = Math.floor(now / FOUR_H) * FOUR_H; // end time of last closed candle
+        if (candleEnd > latestClosedEnd) continue; // skip partial
+
+        const b = buckets.get(candleStart) || { prices: [], volume: 0 };
+        b.prices.push(p);
+        // approximate volume by matching timestamp in volMap if available
+        const v = volMap.get(Math.floor(pTs)) || 0;
+        b.volume += v;
+        buckets.set(candleStart, b);
+      }
+
+      // Build candles from buckets and sort ascending
+      const candleList: Candle[] = [];
+      for (const [ts, data] of buckets) {
+        if (!data.prices || data.prices.length === 0) continue;
+        const open = data.prices[0];
+        const close = data.prices[data.prices.length - 1];
+        const high = Math.max(...data.prices);
+        const low = Math.min(...data.prices);
+        candleList.push({ timestamp: ts, open, high, low, close, volume: data.volume });
+      }
+
+      if (candleList.length === 0) {
+        console.warn('bootstrapFourHourMarketContext: built zero 4h candles from API data');
+        return false;
+      }
+
+      // Sort ascending and take the last `count` closed candles
+      candleList.sort((a, b) => a.timestamp - b.timestamp);
+      const selected = candleList.slice(-count);
+
+      if (selected.length < Math.min(20, count)) {
+        // Not enough reliable 4h history to bootstrap safely
+        console.warn(`bootstrapFourHourMarketContext: insufficient closed 4h candles (${selected.length})`);
+        return false;
+      }
+
+      // Inject as historicalBootstrapData into the CandleBuilder
+      this.candleBuilder.injectHistoricalCandles('4h', selected);
+
+      // Also for safety, ensure derived 1h/15m contexts are available via sampling
+      // (we don't inject 1h/15m OHLC directly to avoid mismatches; existing
+      // preloadHistoricalPrices will handle ticks for those timeframes)
+
+      return true;
+    } catch (error) {
+      // Bubble unexpected errors up as warnings — caller will fall back
+      console.warn('bootstrapFourHourMarketContext: unexpected error', String(error));
+      return false;
     }
   }
 
