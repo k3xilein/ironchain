@@ -196,10 +196,12 @@ export class IronChainBot {
       const priceData = await this.marketData.getCurrentPrice(true);
       const provider = priceData?.source || 'unknown';
       const currentPrice = priceData.price;
-      const candles15 = this.marketData.getCandles('15m');
-      const ema50 = getLatestEMA(candles15, 50);
-      const ema200 = getLatestEMA(candles15, 200);
-      const adx = getLatestADX(candles15, this.config.regime.adxPeriod);
+  const candles4h = this.marketData.getCandles('4h');
+  const candles15 = this.marketData.getCandles('15m');
+  // Regime indicators should be computed on the regime timeframe (4h)
+  const ema50 = getLatestEMA(candles4h, this.config.regime.emaFast);
+  const ema200 = getLatestEMA(candles4h, this.config.regime.emaSlow);
+  const adx = getLatestADX(candles4h, this.config.regime.adxPeriod);
 
       const fmt = (v: any, d = 2) => (typeof v === 'number' && isFinite(v) ? v.toFixed(d) : 'n/a');
 
@@ -219,7 +221,7 @@ export class IronChainBot {
       }
       marketScoreLocal = Math.max(1, Math.min(10, marketScoreLocal));
 
-      this.logger.info('Bot', `Diag — src=${provider} price=${fmt(currentPrice)} EMA50=${fmt(ema50)} EMA200=${fmt(ema200)} ADX=${fmt(adx,1)} MS=${marketScoreLocal}/10 reasons=${reasonsLocal.slice(0,2).join('; ')}`);
+  this.logger.info('Bot', `Diag — src=${provider} price=${fmt(currentPrice)} [4h] EMA50=${fmt(ema50)} EMA200=${fmt(ema200)} ADX=${fmt(adx,1)} MS=${marketScoreLocal}/10 reasons=${reasonsLocal.slice(0,2).join('; ')}`);
     } catch (err) {
       this.logger.debug('Bot', 'Cycle diagnostics failed', { error: String(err) });
     }
