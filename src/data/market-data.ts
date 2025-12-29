@@ -148,7 +148,15 @@ export class MarketData {
 
       if (selected.length < Math.min(20, targetCount)) {
         // Not enough reliable 4h history to bootstrap safely
-        console.warn(`bootstrapFourHourMarketContext: insufficient closed 4h candles (${selected.length})`) ;
+        console.warn(`bootstrapFourHourMarketContext: insufficient closed 4h candles from CoinGecko (${selected.length}), attempting Binance fallback`);
+        // Try Binance klines fallback which can return exact 4h OHLCV
+        try {
+          const binanceOk = await this.bootstrapFourHourFromBinance(targetCount);
+          if (binanceOk) return true;
+        } catch (err) {
+          console.warn('bootstrapFourHourMarketContext: Binance fallback failed', String(err));
+        }
+
         return false;
       }
 
@@ -166,6 +174,54 @@ export class MarketData {
     } catch (error) {
       // Bubble unexpected errors up as warnings — caller will fall back
       console.warn('bootstrapFourHourMarketContext: unexpected error', String(error));
+      return false;
+    }
+  }
+
+  /**
+   * Fallback: fetch 4h OHLCV from Binance public klines API. This is used
+   * when CoinGecko doesn't provide enough closed 4h buckets. Returns true
+   * when at least targetCount closed candles were fetched and injected.
+   */
+  private async bootstrapFourHourFromBinance(targetCount: number): Promise<boolean> {
+    try {
+      if (targetCount <= 0) return false;
+
+      // Binance uses symbol like SOLUSDT. We prefer SOLUSDC when available,
+      // but SOLUSDT is widely available and close to USD. Use SOLUSDT here.
+      const symbol = 'SOLUSDT';
+      const limit = Math.min(Math.max(targetCount, 20), 1000); // Binance limit up to 1000
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=${limit}`;
+      const resp = await axios.get(url, { timeout: 10_000 });
+
+      if (!Array.isArray(resp.data) || resp.data.length === 0) {
+        console.warn('bootstrapFourHourFromBinance: no klines returned');
+        return false;
+      }
+
+      // Parse klines: [ openTime, open, high, low, close, volume, closeTime, ... ]
+      const candleList: Candle[] = resp.data.map((k: any[]) => {
+        const openTime = Number(k[0]);
+        const open = Number(k[1]);
+        const high = Number(k[2]);
+        const low = Number(k[3]);
+        const close = Number(k[4]);
+        const volume = Number(k[5]);
+        return { timestamp: openTime, open, high, low, close, volume } as Candle;
+      });
+
+      if (candleList.length < Math.min(20, targetCount)) {
+        console.warn(`bootstrapFourHourFromBinance: insufficient klines (${candleList.length})`);
+        return false;
+      }
+
+      // Binance returns ascending by default; take last targetCount
+      const toInject = candleList.slice(-targetCount);
+      this.candleBuilder.injectHistoricalCandles('4h', toInject);
+      console.log(`bootstrapFourHourFromBinance: injected ${toInject.length} 4h candles from Binance`);
+      return true;
+    } catch (err) {
+      console.warn('bootstrapFourHourFromBinance: error', String(err));
       return false;
     }
   }
