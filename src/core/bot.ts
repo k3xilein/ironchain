@@ -289,6 +289,19 @@ export class IronChainBot {
       entrySignal.reasons
     );
 
+    // Allow an operator-controlled override to force an entry execution in
+    // PAPER mode for testing purposes only. This will not bypass risk
+    // manager checks or size validation. To use set FORCE_PAPER_EXECUTE=true
+    // in the environment. This is intentionally narrow and reversible.
+    const forcePaperExecute = (this.config.runMode === 'PAPER_LIVE') && (process.env.FORCE_PAPER_EXECUTE === 'true');
+    if (forcePaperExecute && !entrySignal.shouldEnter) {
+      this.logger.info('Bot', 'FORCE_PAPER_EXECUTE active — forcing entry execution (PAPER mode)');
+      // Annotate reasons and force the flag so execution proceeds
+      entrySignal.reasons = entrySignal.reasons || [];
+      entrySignal.reasons.unshift('FORCE_PAPER_EXECUTE override');
+      entrySignal.shouldEnter = true;
+    }
+
     if (!entrySignal.shouldEnter) {
       this.logger.debug('Bot', 'No entry signal', {
         reasons: entrySignal.reasons,
