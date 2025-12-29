@@ -18,7 +18,8 @@
     "export": "ts-node src/scripts/export.ts",
   "check:preload": "ts-node src/scripts/check-preload.ts",
     "kill": "touch STOP_AND_FLATTEN",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "telegram": "ts-node src/integrations/telegram-bot.ts"
   },
   "keywords": ["solana", "trading", "bot"],
   "author": "",
