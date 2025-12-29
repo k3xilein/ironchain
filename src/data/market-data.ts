@@ -142,9 +142,9 @@ export class MarketData {
         return false;
       }
 
-      // Sort ascending and take the last `count` closed candles
-      candleList.sort((a, b) => a.timestamp - b.timestamp);
-      const selected = candleList.slice(-count);
+  // Sort ascending and take the last `targetCount` closed candles
+  candleList.sort((a, b) => a.timestamp - b.timestamp);
+  const selected = candleList.slice(-targetCount);
 
       if (selected.length < Math.min(20, targetCount)) {
         // Not enough reliable 4h history to bootstrap safely
