@@ -15,17 +15,22 @@ export class PriceFeed {
   private config: Config;
   private cachedPrice: PriceData | null = null;
   private lastUpdateTime: number = 0;
+  private cacheTTL: number = 30 * 1000; // default 30s cache
 
   constructor(config: Config) {
     this.config = config;
     this.connection = new Connection(config.network.rpcUrl, config.network.commitment);
     this.pythPriceFeed = new PublicKey(config.oracle.pythPriceFeed);
+    // Allow overriding cache TTL via config.timing.priceCacheTTL (ms)
+    if (config.timing && typeof (config.timing as any).priceCacheTTL === 'number') {
+      this.cacheTTL = (config.timing as any).priceCacheTTL;
+    }
   }
 
   async getPrice(): Promise<PriceData> {
     // Return cached price if fresh enough
     const now = Date.now();
-    if (this.cachedPrice && (now - this.lastUpdateTime) < 5000) {
+    if (this.cachedPrice && (now - this.lastUpdateTime) < this.cacheTTL) {
       return this.cachedPrice;
     }
     // Prefer CoinGecko for a straightforward USD price (reliable HTTP API).
@@ -39,6 +44,11 @@ export class PriceFeed {
         return cg;
       }
     } catch (err) {
+      // If we have a cached price use it rather than immediately failing
+      if (this.cachedPrice) {
+        console.warn('CoinGecko fetch failed; returning cached price', String(err));
+        return this.cachedPrice;
+      }
       console.warn('CoinGecko price fetch failed or returned unreasonable value, trying Jupiter/Pyth', String(err));
     }
 
@@ -50,6 +60,10 @@ export class PriceFeed {
         return jupiterPrice;
       }
     } catch (err) {
+      if (this.cachedPrice) {
+        console.warn('Jupiter fetch failed; returning cached price', String(err));
+        return this.cachedPrice;
+      }
       console.warn('Jupiter price fetch failed or returned unreasonable value, falling back to Pyth', String(err));
     }
 
@@ -61,9 +75,16 @@ export class PriceFeed {
         return pythPrice;
       }
     } catch (err) {
+      if (this.cachedPrice) {
+        console.warn('Pyth fetch failed; returning cached price', String(err));
+        return this.cachedPrice;
+      }
       console.warn('Pyth price fetch failed or returned unreasonable value', String(err));
     }
 
+    // If all providers failed and we have no cached price, throw — caller
+    // should handle this and decide whether to stop. This is a last-resort
+    // failure mode.
     throw new Error('Failed to fetch a reasonable price from CoinGecko, Jupiter or Pyth');
   }
 
