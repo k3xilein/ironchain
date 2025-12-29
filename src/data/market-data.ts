@@ -89,19 +89,25 @@ export class MarketData {
 
   async update(): Promise<void> {
     const now = Date.now();
-    
-    // Get current price
-    const priceData = await this.priceFeed.getPrice();
-    
-    // Add tick to candle builder
-    const tick: TickData = {
-      price: priceData.price,
-      timestamp: now,
-      volume: 0, // Volume not currently tracked from oracle
-    };
-    
-    this.candleBuilder.addTick(tick);
-    this.lastUpdate = now;
+    // Get current price (use MarketData.getCurrentPrice which has a
+    // fallback to preloaded candles). If that still fails, log and
+    // skip this update cycle rather than throwing to keep the bot
+    // running.
+    try {
+      const priceData = await this.getCurrentPrice();
+
+      const tick: TickData = {
+        price: priceData.price,
+        timestamp: now,
+        volume: 0, // Volume not currently tracked from oracle
+      };
+
+      this.candleBuilder.addTick(tick);
+      this.lastUpdate = now;
+    } catch (err) {
+      console.warn('MarketData.update: failed to obtain current price, skipping tick:', String(err));
+      // Do not throw — allow the bot to continue and rely on preloaded data
+    }
   }
 
   async getCurrentPrice(): Promise<PriceData> {
