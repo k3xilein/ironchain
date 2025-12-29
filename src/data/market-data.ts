@@ -104,9 +104,8 @@ export class MarketData {
     try {
       const FOUR_H = 4 * 60 * 60 * 1000;
       const days = Math.ceil((targetCount * 4) / 24) + 1;
-      const url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
-      const resp = await axios.get(url, { timeout: 15_000 });
-      const prices: Array<[number, number]> = resp.data?.prices || [];
+      const resp = await this.fetchCoinGeckoMarketChart(days, 2);
+      const prices: Array<[number, number]> = resp?.prices || [];
       if (!Array.isArray(prices) || prices.length === 0) throw new Error('no prices');
 
       const FOUR_H_BS: Map<number, number[]> = new Map();
@@ -144,6 +143,28 @@ export class MarketData {
     return await this.bootstrapFourHourFromBinance(targetCount);
   }
 
+  private async fetchCoinGeckoMarketChart(days: number, attempts = 2): Promise<any> {
+    let lastErr: any = null;
+    const url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const resp = await axios.get(url, { timeout: 15_000 });
+        return resp.data;
+      } catch (err: any) {
+        lastErr = err;
+        const status = err?.response?.status || null;
+        if (status === 429) {
+          const backoff = 300 * Math.pow(2, i); // 300ms, 600ms, ...
+          this.logWarn('MarketData', `CoinGecko 429 received, backing off ${backoff}ms (attempt ${i + 1}/${attempts})`);
+          await new Promise(r => setTimeout(r, backoff));
+          continue;
+        }
+        break;
+      }
+    }
+    throw new Error(`CoinGecko market_chart fetch failed after ${attempts} attempts: ${String(lastErr)}`);
+  }
+
   private async bootstrapFourHourFromBinance(targetCount: number): Promise<boolean> {
     if (targetCount <= 0) return false;
     try {
@@ -166,9 +187,8 @@ export class MarketData {
 
   private async preloadHistoricalPrices(days = 7): Promise<void> {
     try {
-      const url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
-      const resp = await axios.get(url, { timeout: 10_000 });
-      const prices: Array<[number, number]> = resp.data?.prices || [];
+      const resp = await this.fetchCoinGeckoMarketChart(days, 2);
+      const prices: Array<[number, number]> = resp?.prices || [];
       if (!Array.isArray(prices) || prices.length === 0) return;
       const sampled: Array<[number, number]> = [];
       let lastTs = 0;
