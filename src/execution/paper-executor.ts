@@ -62,6 +62,18 @@ export class PaperExecutor implements Executor {
     } else {
       console.log('Paper executor initialized with:', this.balance);
     }
+    // Test-mode helper: when forcing paper execution, ensure we have some
+    // USDC available so forced buys can proceed even if user started with
+    // only SOL. This is controlled by FORCE_PAPER_EXECUTE and only applies
+    // in test scenarios.
+    try {
+      if (process.env.FORCE_PAPER_EXECUTE === 'true' && (!this.balance.usdc || this.balance.usdc <= 0)) {
+        this.balance.usdc = Math.max(100, this.config.trading.initialCapitalUSDC);
+        console.info('Paper executor test-mode: seeded USDC for forced execution', this.balance.usdc);
+      }
+    } catch (_) {
+      // ignore in environments without process typings
+    }
   }
 
   async buy(amountUSDC: number, maxSlippage: number): Promise<ExecutionResult> {

@@ -65,7 +65,10 @@ export class PositionSizer {
       // This is controlled by environment variables so production behavior
       // is unchanged. In test mode, accept sizes >= $1 so we can validate
       // the execution path end-to-end without large capital.
-      const forceTest = (process.env.FORCE_PAPER_EXECUTE === 'true') && (process.env.RUN_MODE === 'PAPER_LIVE');
+  // Support a test-only override via FORCE_PAPER_EXECUTE. We check only
+  // that env var here (not RUN_MODE) so the relaxation reliably applies
+  // when the operator requests a forced paper execution.
+  const forceTest = (process.env.FORCE_PAPER_EXECUTE === 'true');
       if (forceTest) {
         if (size.sizeUSDC < 1) {
           return { valid: false, reason: 'Position size too small (min $1 in test mode)' };
