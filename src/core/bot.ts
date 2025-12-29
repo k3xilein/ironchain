@@ -250,9 +250,14 @@ export class IronChainBot {
     this.logger.info('Bot', 'Analyzing for possible entries', { pair: this.config.trading.pair, timeframe: '15m' });
     const candles15m = this.marketData.getCandles('15m');
     
+    const forcePaperExecute = (this.config.runMode === 'PAPER_LIVE') && (process.env.FORCE_PAPER_EXECUTE === 'true');
     if (!this.marketData.hasEnoughData('15m', this.config.entry.donchianPeriod + 50)) {
-      this.logger.debug('Bot', 'Insufficient 15m data for entry signals');
-      return;
+      if (forcePaperExecute) {
+        this.logger.info('Bot', 'FORCE_PAPER_EXECUTE active — proceeding despite insufficient 15m data (PAPER mode)');
+      } else {
+        this.logger.debug('Bot', 'Insufficient 15m data for entry signals');
+        return;
+      }
     }
 
     // Get current price
@@ -293,7 +298,6 @@ export class IronChainBot {
     // PAPER mode for testing purposes only. This will not bypass risk
     // manager checks or size validation. To use set FORCE_PAPER_EXECUTE=true
     // in the environment. This is intentionally narrow and reversible.
-    const forcePaperExecute = (this.config.runMode === 'PAPER_LIVE') && (process.env.FORCE_PAPER_EXECUTE === 'true');
     if (forcePaperExecute && !entrySignal.shouldEnter) {
       this.logger.info('Bot', 'FORCE_PAPER_EXECUTE active — forcing entry execution (PAPER mode)');
       // Annotate reasons and force the flag so execution proceeds
