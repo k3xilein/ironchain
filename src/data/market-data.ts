@@ -233,7 +233,16 @@ export class MarketData {
     const now = Date.now();
     const freshnessMs = Math.max(30 * 1000, (this.config.timing?.checkInterval || 5000) * 2);
     if (!force && this.lastTickPrice && (now - this.lastUpdate) < freshnessMs) return this.lastTickPrice;
-    try { return await this.priceFeed.getPrice(force); } catch (err) {
+    try {
+      const pd = await this.priceFeed.getPrice(force);
+      // If caller asked for a forced fresh price, update our lastTickPrice and add a tick
+      // so that subsequent non-forced calls see the same latest price.
+      const ts = Date.now();
+      this.lastTickPrice = { ...pd, timestamp: ts } as PriceData;
+      this.lastUpdate = ts;
+      try { this.candleBuilder.addTick({ price: pd.price, timestamp: ts, volume: 0 }); } catch (_) {}
+      return this.lastTickPrice;
+    } catch (err) {
       if (this.lastTickPrice) return this.lastTickPrice;
       const recent15 = this.candleBuilder.getCurrentCandle('15m') || this.candleBuilder.getCandles('15m').slice(-1)[0];
       if (recent15 && isFinite(recent15.close)) return { price: recent15.close, timestamp: recent15.timestamp, confidence: 0, source: 'preload' } as PriceData;
