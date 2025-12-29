@@ -73,16 +73,22 @@ export class MarketData {
    *   (no partial/ongoing candles), so indicators are computed on the
    *   same closed periods they would have after 4 hours of running.
    */
-  async bootstrapFourHourMarketContext(count = 50): Promise<boolean> {
+  async bootstrapFourHourMarketContext(count?: number): Promise<boolean> {
     try {
-      if (count <= 0) return false;
+      // If count is not provided, derive required 4h candles from regime settings
+      const requiredFromConfig = (this.config && this.config.regime && this.config.regime.emaSlow)
+        ? (this.config.regime.emaSlow + 50)
+        : 50;
+      const targetCount = (typeof count === 'number' && count > 0) ? count : requiredFromConfig;
+
+      if (targetCount <= 0) return false;
 
       const now = Date.now();
       const FOUR_H = 4 * 60 * 60 * 1000;
 
       // Compute how many days of history to request from CoinGecko to
       // safely cover `count` 4h candles. Add 1 day of slack.
-      const hoursNeeded = count * 4;
+  const hoursNeeded = targetCount * 4;
       const days = Math.ceil(hoursNeeded / 24) + 1;
 
       const url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
@@ -140,14 +146,17 @@ export class MarketData {
       candleList.sort((a, b) => a.timestamp - b.timestamp);
       const selected = candleList.slice(-count);
 
-      if (selected.length < Math.min(20, count)) {
+      if (selected.length < Math.min(20, targetCount)) {
         // Not enough reliable 4h history to bootstrap safely
-        console.warn(`bootstrapFourHourMarketContext: insufficient closed 4h candles (${selected.length})`);
+        console.warn(`bootstrapFourHourMarketContext: insufficient closed 4h candles (${selected.length})`) ;
         return false;
       }
 
+      // If we have at least the requested number, inject only that many
+      const toInject = selected.slice(-targetCount);
+
       // Inject as historicalBootstrapData into the CandleBuilder
-      this.candleBuilder.injectHistoricalCandles('4h', selected);
+  this.candleBuilder.injectHistoricalCandles('4h', toInject);
 
       // Also for safety, ensure derived 1h/15m contexts are available via sampling
       // (we don't inject 1h/15m OHLC directly to avoid mismatches; existing
@@ -225,9 +234,9 @@ export class MarketData {
     }
   }
 
-  async getCurrentPrice(): Promise<PriceData> {
+  async getCurrentPrice(force = false): Promise<PriceData> {
     try {
-      return await this.priceFeed.getPrice();
+      return await this.priceFeed.getPrice(force);
     } catch (err) {
       // Fallback: use last preloaded/current candle price if price feed fails
       const recent15 = this.candleBuilder.getCurrentCandle('15m') || this.candleBuilder.getCandles('15m').slice(-1)[0];
@@ -266,4 +275,5 @@ export class MarketData {
     const count = this.candleBuilder.getCandleCount(timeframe);
     return count >= required;
   }
+
 }

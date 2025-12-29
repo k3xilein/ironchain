@@ -30,10 +30,10 @@ export class PriceFeed {
     }
   }
 
-  async getPrice(): Promise<PriceData> {
-    // Return cached price if fresh enough
+  async getPrice(force = false): Promise<PriceData> {
+    // Return cached price if fresh enough (unless force=true)
     const now = Date.now();
-    if (this.cachedPrice && (now - this.lastUpdateTime) < this.cacheTTL) {
+    if (!force && this.cachedPrice && (now - this.lastUpdateTime) < this.cacheTTL) {
       return this.cachedPrice;
     }
     // Prefer CoinGecko for a straightforward USD price (reliable HTTP API).

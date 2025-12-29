@@ -80,7 +80,9 @@ export class IronChainBot {
 
           try {
             const balance = await this.executor.getBalance();
-            const price = (await this.marketData.getCurrentPrice()).price;
+            // Force a fresh live price for heartbeat display so the operator
+            // always sees the current market price (bypass PriceFeed cache).
+            const price = (await this.marketData.getCurrentPrice(true)).price;
             const equity = balance.usdc + (balance.sol * price);
 
             // Regime analysis (4h) if enough data
