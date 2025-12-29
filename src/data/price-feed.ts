@@ -36,29 +36,8 @@ export class PriceFeed {
     if (!force && this.cachedPrice && (now - this.lastUpdateTime) < this.cacheTTL) {
       return this.cachedPrice;
     }
-    // Prefer CoinGecko for a straightforward USD price (reliable HTTP API).
-    // Fall back to Binance, then Jupiter, then Pyth if needed. Prefer HTTP
-    // REST sources first (CoinGecko/Binance) to avoid Pyth binary parsing
-    // anomalies and DNS issues with Jupiter in some environments.
-    try {
-      const cg = await this.getCoinGeckoPrice();
-      if (this.isPriceReasonable(cg.price)) {
-        this.cachedPrice = cg;
-        this.lastUpdateTime = now;
-        return cg;
-      }
-    } catch (err) {
-      // If we have a cached price and the caller did NOT force a fresh fetch,
-      // return the cached value. If force === true we must attempt the other
-      // providers and only fall back to cache as a last resort (or throw).
-      if (this.cachedPrice && !force) {
-        console.warn('CoinGecko fetch failed; returning cached price', String(err));
-        return this.cachedPrice;
-      }
-      console.warn('CoinGecko price fetch failed or returned unreasonable value, trying Jupiter/Pyth', String(err));
-    }
-
-    // Try Binance next (fast, public REST ticker)
+    // Prefer Binance for low-latency, low-rate-limit ticker queries.
+    // Fall back to CoinGecko (with a small retry/backoff) then Jupiter and Pyth.
     try {
       const bin = await this.getBinancePrice();
       if (bin && this.isPriceReasonable(bin.price)) {
@@ -71,7 +50,24 @@ export class PriceFeed {
         console.warn('Binance fetch failed; returning cached price', String(err));
         return this.cachedPrice;
       }
-      console.warn('Binance price fetch failed or returned unreasonable value, trying Jupiter/Pyth', String(err));
+      // fall through to try CoinGecko/Jupiter/Pyth
+    }
+
+    // Try CoinGecko next but with a short retry/backoff to gracefully handle 429s
+    try {
+      const cg = await this.getCoinGeckoPriceWithRetry(2);
+      if (cg && this.isPriceReasonable(cg.price)) {
+        this.cachedPrice = cg;
+        this.lastUpdateTime = now;
+        return cg;
+      }
+    } catch (err) {
+      if (this.cachedPrice && !force) {
+        console.warn('CoinGecko fetch failed; returning cached price', String(err));
+        return this.cachedPrice;
+      }
+      // fall through to try Jupiter/Pyth
+      console.warn('CoinGecko price fetch failed or returned unreasonable value, trying Jupiter/Pyth');
     }
 
     try {
@@ -111,14 +107,31 @@ export class PriceFeed {
   }
 
   private async getCoinGeckoPrice(): Promise<PriceData> {
-    try {
-      const resp = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { timeout: 5000 });
-      const price = resp.data?.solana?.usd;
-      if (!price || typeof price !== 'number') throw new Error('Invalid CoinGecko response');
-      return { price, timestamp: Date.now(), confidence: 0, source: 'coingecko' };
-    } catch (err) {
-      throw new Error(`CoinGecko price fetch failed: ${String(err)}`);
+    const resp = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { timeout: 5000 });
+    const price = resp.data?.solana?.usd;
+    if (!price || typeof price !== 'number') throw new Error('Invalid CoinGecko response');
+    return { price, timestamp: Date.now(), confidence: 0, source: 'coingecko' };
+  }
+
+  private async getCoinGeckoPriceWithRetry(attempts = 2): Promise<PriceData> {
+    let lastErr: any = null;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await this.getCoinGeckoPrice();
+      } catch (err: any) {
+        lastErr = err;
+        // If rate limited, wait a bit and retry with exponential backoff
+        const status = err?.response?.status || null;
+        if (status === 429) {
+          const backoff = 300 * Math.pow(2, i); // 300ms, 600ms, ...
+          await new Promise(r => setTimeout(r, backoff));
+          continue;
+        }
+        // Non-429 errors: don't spam retries
+        break;
+      }
     }
+    throw new Error(`CoinGecko price fetch failed after ${attempts} attempts: ${String(lastErr)}`);
   }
 
   private async getPythPrice(): Promise<PriceData | null> {
