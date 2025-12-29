@@ -227,7 +227,16 @@ export class PriceFeed {
 
   private async getBinancePrice(): Promise<PriceData | null> {
     try {
-      // Use SOLUSDT public ticker which is widely available
+      // Prefer bookTicker (bid/ask) and use mid-price for a stable USD reference
+      const book = await axios.get('https://api.binance.com/api/v3/ticker/bookTicker?symbol=SOLUSDT', { timeout: 3000 });
+      const bid = parseFloat(book.data?.bidPrice);
+      const ask = parseFloat(book.data?.askPrice);
+      if (isFinite(bid) && isFinite(ask) && bid > 0 && ask > 0) {
+        const mid = (bid + ask) / 2;
+        return { price: mid, timestamp: Date.now(), confidence: 0, source: 'binance' };
+      }
+
+      // Fallback to last trade price if bookTicker not useful
       const resp = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT', { timeout: 4000 });
       const p = parseFloat(resp.data?.price);
       if (!isFinite(p) || p <= 0) throw new Error('Invalid Binance price');
