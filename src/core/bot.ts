@@ -313,6 +313,15 @@ export class IronChainBot {
       return;
     }
 
+    // If entryPrice wasn't computed (e.g. no candle data), fall back to
+    // the current market price so sizing/stop calculations can proceed.
+    if (!entrySignal.entryPrice || entrySignal.entryPrice <= 0) {
+      entrySignal.entryPrice = currentPrice;
+      entrySignal.reasons = entrySignal.reasons || [];
+      entrySignal.reasons.unshift('FALLBACK_ENTRY_PRICE=currentMarket');
+      this.logger.info('Bot', 'Entry price missing — falling back to current market price', { fallbackPrice: currentPrice });
+    }
+
     // Calculate exact position size
     const stopPrice = this.exitManager.calculateInitialStop(candles15m, entrySignal.entryPrice);
     
