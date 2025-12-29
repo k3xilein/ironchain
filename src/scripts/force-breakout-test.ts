@@ -30,17 +30,40 @@ async function run() {
   const fifteenCount = Math.max(120, config.entry.donchianPeriod + 80);
   const candles15m: Candle[] = [];
   const start15 = Date.now() - fifteenCount * 15 * 60 * 1000;
-  // Make last candles break out above recent highs
+  // Build stable recent history with small variance to avoid extreme RSI,
+  // then force a clean breakout in the final candle(s).
   for (let i = 0; i < fifteenCount; i++) {
     const t = start15 + i * 15 * 60 * 1000;
-    // Keep 15m around the upper range of 4h trend
-    const base = 140 + (i / fifteenCount) * 5; // 140 -> 145
-    const o = base + (Math.random() - 0.5) * 0.3;
-    const c = base + (Math.random() - 0.5) * 0.3 + (i > fifteenCount - 3 ? 1.5 : 0); // last 2 candles push higher
-    const h = Math.max(o, c) + Math.random() * 0.3;
-    const l = Math.min(o, c) - Math.random() * 0.3;
+    const base = 140 + (i / fifteenCount) * 3; // gentle upward drift
+    const noise = (Math.random() - 0.5) * 0.2;
+    const o = base + noise;
+    const c = base + noise + (Math.random() - 0.5) * 0.1;
+    const h = Math.max(o, c) + Math.random() * 0.15;
+    const l = Math.min(o, c) - Math.random() * 0.15;
     candles15m.push({ timestamp: t, open: o, high: h, low: l, close: c, volume: 0 });
   }
+
+  // Compute Donchian high from the prior donchianPeriod to ensure we can
+  // craft a modest breakout that doesn't blow out RSI.
+  const donchianPeriod = config.entry.donchianPeriod;
+  const dcSlice = candles15m.slice(-donchianPeriod);
+  const donchianHigh = Math.max(...dcSlice.map(c => c.high));
+
+  // Force the last 3 candles to trend up modestly, with the final candle
+  // breaking above donchianHigh by ~1.5 USD (enough to trigger breakout)
+  const finalIndex = candles15m.length - 1;
+  const breakoutDelta = Math.max(1.2, donchianHigh * 0.01); // at least $1.2 or 1%
+  const c1 = donchianHigh + breakoutDelta - 0.6; // two bars building
+  const c2 = donchianHigh + breakoutDelta - 0.2; // ramp
+  const c3 = donchianHigh + breakoutDelta; // breakout candle
+
+  // Apply small controlled values to last three candles
+  const t1 = candles15m[finalIndex - 2].timestamp;
+  candles15m[finalIndex - 2] = { timestamp: t1, open: c1 - 0.15, high: c1 + 0.2, low: c1 - 0.6, close: c1, volume: 0 };
+  const t2 = candles15m[finalIndex - 1].timestamp;
+  candles15m[finalIndex - 1] = { timestamp: t2, open: c2 - 0.12, high: c2 + 0.18, low: c2 - 0.5, close: c2, volume: 0 };
+  const t3 = candles15m[finalIndex].timestamp;
+  candles15m[finalIndex] = { timestamp: t3, open: c3 - 0.2, high: c3 + 0.25, low: c3 - 0.7, close: c3, volume: 0 };
 
   // Run regime analysis
   const regimeFilter = new RegimeFilter(config.regime);
