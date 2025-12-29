@@ -22,7 +22,10 @@ export class MarketData {
     // data and injects it as closed 4h candles into the CandleBuilder.
     // If bootstrapping fails, we fall back to the existing behavior.
     try {
-      const ok = await this.bootstrapFourHourMarketContext(50);
+      // Do not hardcode 50 here — allow bootstrap to derive the required
+      // number of 4h candles from the configured EMA slow period so the
+      // bot gets the full history it expects (e.g. emaSlow + 50).
+      const ok = await this.bootstrapFourHourMarketContext();
       if (ok) {
         console.log('Bootstrapped 4H market context from API (no warm-up delay)');
       } else {
