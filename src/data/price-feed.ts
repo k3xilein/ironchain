@@ -37,8 +37,9 @@ export class PriceFeed {
       return this.cachedPrice;
     }
     // Prefer CoinGecko for a straightforward USD price (reliable HTTP API).
-    // Fall back to Jupiter, then Pyth if needed. This ordering avoids
-    // Pyth binary parsing issues when a simple HTTP price is available.
+    // Fall back to Binance, then Jupiter, then Pyth if needed. Prefer HTTP
+    // REST sources first (CoinGecko/Binance) to avoid Pyth binary parsing
+    // anomalies and DNS issues with Jupiter in some environments.
     try {
       const cg = await this.getCoinGeckoPrice();
       if (this.isPriceReasonable(cg.price)) {
@@ -55,6 +56,22 @@ export class PriceFeed {
         return this.cachedPrice;
       }
       console.warn('CoinGecko price fetch failed or returned unreasonable value, trying Jupiter/Pyth', String(err));
+    }
+
+    // Try Binance next (fast, public REST ticker)
+    try {
+      const bin = await this.getBinancePrice();
+      if (bin && this.isPriceReasonable(bin.price)) {
+        this.cachedPrice = bin;
+        this.lastUpdateTime = now;
+        return bin;
+      }
+    } catch (err) {
+      if (this.cachedPrice && !force) {
+        console.warn('Binance fetch failed; returning cached price', String(err));
+        return this.cachedPrice;
+      }
+      console.warn('Binance price fetch failed or returned unreasonable value, trying Jupiter/Pyth', String(err));
     }
 
     try {
@@ -131,6 +148,15 @@ export class PriceFeed {
         return null;
       }
 
+      // Reject obviously-suspicious exponent values. Pyth typically uses a
+      // small negative exponent (e.g. -8). If expo is positive or absurdly
+      // large in magnitude the parsed result will be nonsensical; treat as
+      // invalid so we fall back to HTTP providers instead of clamping.
+      if (!Number.isInteger(expo) || expo > 0 || Math.abs(expo) > 12) {
+        console.warn(`Pyth expo looks suspicious: ${expo}`);
+        return null;
+      }
+
       // Convert to decimal
       const priceDecimal = Number(price) * Math.pow(10, expo);
       const confidenceDecimal = Number(confidence) * Math.pow(10, expo);
@@ -183,6 +209,19 @@ export class PriceFeed {
 
     } catch (error) {
       throw new Error(`Jupiter price fetch failed: ${error}`);
+    }
+  }
+
+  private async getBinancePrice(): Promise<PriceData | null> {
+    try {
+      // Use SOLUSDT public ticker which is widely available
+      const resp = await axios.get('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT', { timeout: 4000 });
+      const p = parseFloat(resp.data?.price);
+      if (!isFinite(p) || p <= 0) throw new Error('Invalid Binance price');
+      return { price: p, timestamp: Date.now(), confidence: 0, source: 'binance' };
+    } catch (err) {
+      // Bubble error to caller so higher-level logic can decide to use cache
+      throw new Error(`Binance price fetch failed: ${String(err)}`);
     }
   }
 
