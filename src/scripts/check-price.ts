@@ -1,8 +1,8 @@
-import { Config } from '../config';
 import { PriceFeed } from '../data/price-feed';
+import { loadConfig } from '../config';
 
 async function main() {
-  const config = (await import('../config')).default as Config;
+  const config = loadConfig();
   const pf = new PriceFeed(config);
 
   console.log('Checking forced live prices from providers (5 iterations, 1s interval)');
