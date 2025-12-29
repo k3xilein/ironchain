@@ -28,9 +28,20 @@ export class PriceFeed {
     if (this.cachedPrice && (now - this.lastUpdateTime) < 5000) {
       return this.cachedPrice;
     }
+    // Prefer CoinGecko for a straightforward USD price (reliable HTTP API).
+    // Fall back to Jupiter, then Pyth if needed. This ordering avoids
+    // Pyth binary parsing issues when a simple HTTP price is available.
+    try {
+      const cg = await this.getCoinGeckoPrice();
+      if (this.isPriceReasonable(cg.price)) {
+        this.cachedPrice = cg;
+        this.lastUpdateTime = now;
+        return cg;
+      }
+    } catch (err) {
+      console.warn('CoinGecko price fetch failed or returned unreasonable value, trying Jupiter/Pyth', String(err));
+    }
 
-    // Try Jupiter HTTP price first (generally returns a straightforward USD value).
-    // Use Pyth as a secondary source; also validate values to avoid unit/offset parsing issues.
     try {
       const jupiterPrice = await this.getJupiterPrice();
       if (this.isPriceReasonable(jupiterPrice.price)) {
@@ -39,8 +50,7 @@ export class PriceFeed {
         return jupiterPrice;
       }
     } catch (err) {
-      // swallow and try pyth
-      console.warn('Jupiter price fetch failed or returned unreasonable value, falling back to Pyth', err);
+      console.warn('Jupiter price fetch failed or returned unreasonable value, falling back to Pyth', String(err));
     }
 
     try {
@@ -51,10 +61,21 @@ export class PriceFeed {
         return pythPrice;
       }
     } catch (err) {
-      console.warn('Pyth price fetch failed or returned unreasonable value', err);
+      console.warn('Pyth price fetch failed or returned unreasonable value', String(err));
     }
 
-    throw new Error('Failed to fetch a reasonable price from Jupiter or Pyth');
+    throw new Error('Failed to fetch a reasonable price from CoinGecko, Jupiter or Pyth');
+  }
+
+  private async getCoinGeckoPrice(): Promise<PriceData> {
+    try {
+      const resp = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd', { timeout: 5000 });
+      const price = resp.data?.solana?.usd;
+      if (!price || typeof price !== 'number') throw new Error('Invalid CoinGecko response');
+      return { price, timestamp: Date.now(), confidence: 0, source: 'jupiter' as any };
+    } catch (err) {
+      throw new Error(`CoinGecko price fetch failed: ${String(err)}`);
+    }
   }
 
   private async getPythPrice(): Promise<PriceData | null> {
