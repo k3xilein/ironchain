@@ -59,7 +59,10 @@ export async function startup(): Promise<IronChainBot> {
 
   // Initialize risk management
   const positionSizer = new PositionSizer(config.risk);
-  const riskManager = new RiskManager(config.risk, config.trading.initialCapitalUSDC);
+  // Note: RiskManager initial equity should reflect the real starting
+  // portfolio. We will initialize it after the executor is ready so that
+  // the high-water-mark is accurate (avoids spurious kill-switch on startup).
+  let riskManager: RiskManager;
   const killSwitch = new KillSwitch(config);
   console.log('✅ Risk management initialized\n');
 
@@ -103,6 +106,22 @@ export async function startup(): Promise<IronChainBot> {
   }
   
   await executor.initialize();
+
+  // Now that executor is initialized we can determine the actual starting
+  // equity (balance + SOL valuation) and initialize the RiskManager so its
+  // high-water-mark matches reality.
+  try {
+    const bal = await executor.getBalance();
+    const currentPrice = (await priceFeed.getPrice()).price;
+    const initialEquity = bal.usdc + (bal.sol * currentPrice);
+    riskManager = new RiskManager(config.risk, initialEquity);
+    console.log(`✅ RiskManager initialized with initial equity: ${initialEquity.toFixed(2)} USD`);
+  } catch (err) {
+    // Fall back to configured initial capital if anything fails
+    riskManager = new RiskManager(config.risk, config.trading.initialCapitalUSDC);
+    console.warn('RiskManager: failed to derive initial equity from executor — falling back to configured INITIAL_CAPITAL_USDC', String(err));
+  }
+
   console.log('✅ Executor initialized\n');
 
   // Create bot
